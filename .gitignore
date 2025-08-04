@@ -7,7 +7,7 @@ backend/market_research.db
 *.pyo
 *.pyd
 *.sqlite3
-
+market_research.db
 # Node / React Frontend
 frontend/node_modules/
 frontend/.env
