@@ -913,6 +913,7 @@ const Dashboard = () => {
   // API Configuration
   //const API_BASE_URL = 'http://127.0.0.1:8000/api';
   const API_BASE_URL = "https://market-research-website.onrender.com/api";
+  
 
   // Toast notification system
   const showToast = (message, type = 'info') => {
@@ -1267,9 +1268,10 @@ const Dashboard = () => {
     try {
       // Get detailed metrics and companies - fix API parameter names
       console.log('Making API calls...');
+      const fullQuery = marketAnalyzed ? `${marketAnalyzed} - ${submarket}` : submarket;
       const [metricsResponse, companiesResponse] = await Promise.all([
-        apiCall('/market/detailed-metrics', 'POST', { market: submarket }), // Fixed: use 'market' not 'submarket'
-        apiCall('/company/top-companies', 'POST', { submarket: submarket })  // This one is correct
+        apiCall('/market/detailed-metrics', 'POST', { market: fullQuery }), // Fixed: use 'market' not 'submarket'
+        apiCall('/company/top-companies', 'POST', { submarket: fullQuery })  // This one is correct
       ]);
       
       console.log('Metrics response:', metricsResponse);
@@ -1326,9 +1328,10 @@ const Dashboard = () => {
     
     try {
       // Make API calls
+      const fullQuery = marketAnalyzed ? `${marketAnalyzed} - ${marketName}` : marketName;
       const [metricsResponse, companiesResponse] = await Promise.all([
-        apiCall('/market/detailed-metrics', 'POST', { market: marketName }),
-        apiCall('/company/top-companies', 'POST', { submarket: marketName })
+        apiCall('/market/detailed-metrics', 'POST', { market: fullQuery }),
+        apiCall('/company/top-companies', 'POST', { submarket: fullQuery })
       ]);
       
       // Update sidebar with results
