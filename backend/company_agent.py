@@ -1,7 +1,7 @@
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
-import streamlit as st
+
 
 # Load environment variables (ensure OPENAI_API_KEY is set)
 load_dotenv()

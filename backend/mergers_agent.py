@@ -2,7 +2,7 @@ import os
 import time
 from openai import OpenAI, RateLimitError
 from dotenv import load_dotenv
-import streamlit as st
+
 
 # Load your API key
 load_dotenv()
