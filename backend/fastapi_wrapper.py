@@ -61,16 +61,16 @@ Base.metadata.create_all(bind=engine)
 
 # ===== Imports =====
 try:
-    from openai_handler import get_vertical_submarkets
-    from horizontal_handler import get_horizontal_submarkets  
-    from global_metrics_agent import get_global_overview
-    from metrics_agent import get_detailed_metrics
-    from company_agent import get_top_companies
-    from mergers_agent import get_mergers_table
-    from web_search_agent import search_web_insights
-    from compare_pdf_agent import compare_uploaded_pdfs
-    from split_and_upload_chunks import split_and_upload_pdf_chunks
-    from query_uploaded_chunks import query_chunks
+    from backend.openai_handler import get_vertical_submarkets
+    from backend.horizontal_handler import get_horizontal_submarkets  
+    from backend.global_metrics_agent import get_global_overview
+    from backend.metrics_agent import get_detailed_metrics
+    from backend.company_agent import get_top_companies
+    from backend.mergers_agent import get_mergers_table
+    from backend.web_search_agent import search_web_insights
+    from backend.compare_pdf_agent import compare_uploaded_pdfs
+    from backend.split_and_upload_chunks import split_and_upload_pdf_chunks
+    from backend.query_uploaded_chunks import query_chunks
     print("✅ Modules imported")
 except ImportError as e:
     print(f"❌ Import error: {e}")
