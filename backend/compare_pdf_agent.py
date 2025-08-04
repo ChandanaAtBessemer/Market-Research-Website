@@ -3,7 +3,7 @@ import time
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
-from pdf_chunks_util import split_pdf_to_chunks
+from backend.pdf_chunks_util import split_pdf_to_chunks
 
 load_dotenv()
 client = OpenAI()
