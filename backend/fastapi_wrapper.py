@@ -60,6 +60,9 @@ class Analytics(Base):
 Base.metadata.create_all(bind=engine)
 
 # ===== Imports =====
+
+#Enale during deployment
+
 try:
     from backend.openai_handler import get_vertical_submarkets
     from backend.horizontal_handler import get_horizontal_submarkets  
@@ -71,10 +74,36 @@ try:
     from backend.compare_pdf_agent import compare_uploaded_pdfs
     from backend.split_and_upload_chunks import split_and_upload_pdf_chunks
     from backend.query_uploaded_chunks import query_chunks
+    from backend.applications_agent import get_market_applications
+    from backend.technology_segments_agent import get_technology_segments
+    from backend.product_categories_agent import get_product_categories
+    from backend.regional_segments_agent import get_regional_analysis
+    from backend.end_user_segments_agent import get_end_user_analysis 
     print("✅ Modules imported")
 except ImportError as e:
     print(f"❌ Import error: {e}")
-
+'''
+try:
+    from openai_handler import get_vertical_submarkets
+    #from horizontal_handler import get_horizontal_submarkets
+    from regional_segments_agent import get_regional_analysis
+    from technology_segments_agent import get_technology_segments
+    from product_categories_agent import get_product_categories
+    from end_user_segments_agent import get_end_user_analysis   
+    from global_metrics_agent import get_global_overview
+    from metrics_agent import get_detailed_metrics
+    from applications_agent import get_market_applications
+    from company_agent import get_top_companies
+    from mergers_agent import get_mergers_table
+    from web_search_agent import search_web_insights
+    from compare_pdf_agent import compare_uploaded_pdfs
+    from split_and_upload_chunks import split_and_upload_pdf_chunks
+    from query_uploaded_chunks import query_chunks
+    from product_categories_agent import get_product_categories
+    print("✅ Modules imported")
+except ImportError as e:
+    print(f"❌ Import error: {e}")
+'''
 app = FastAPI(title="Market Research Intelligence API", version="3.0.0")
 
 app.add_middleware(
@@ -151,6 +180,20 @@ async def vertical_segments(request: MarketRequest, db: Session = Depends(get_db
     db.commit()
     return {"success": True, "data": result, "cached": False}
 
+@app.post("/api/market/applications")
+async def market_applications(request: MarketRequest, db: Session = Depends(get_db)):
+    cached = db.query(MarketAnalysis)\
+               .filter_by(market=request.market, analysis_type="applications")\
+               .order_by(MarketAnalysis.created_at.desc())\
+               .first()
+    if cached:
+        return {"success": True, "data": cached.data, "cached": True}
+
+    result = get_market_applications(request.market)
+    db.add(MarketAnalysis(market=request.market, analysis_type="applications", data=result))
+    db.commit()
+    return {"success": True, "data": result, "cached": False}
+'''
 @app.post("/api/market/horizontal-markets")
 async def horizontal_markets(request: MarketRequest, db: Session = Depends(get_db)):
     cached = db.query(MarketAnalysis)\
@@ -162,6 +205,62 @@ async def horizontal_markets(request: MarketRequest, db: Session = Depends(get_d
 
     result = get_horizontal_submarkets(request.market)
     db.add(MarketAnalysis(market=request.market, analysis_type="horizontal", data=result))
+    db.commit()
+    return {"success": True, "data": result, "cached": False}
+'''
+@app.post("/api/market/technology-segments")
+async def technology_segments(request: MarketRequest, db: Session = Depends(get_db)):
+    cached = db.query(MarketAnalysis)\
+               .filter_by(market=request.market, analysis_type="technology_segments")\
+               .order_by(MarketAnalysis.created_at.desc())\
+               .first()
+    if cached:
+        return {"success": True, "data": cached.data, "cached": True}
+
+    result = get_technology_segments(request.market)
+    db.add(MarketAnalysis(market=request.market, analysis_type="technology_segments", data=result))
+    db.commit()
+
+@app.post("/api/market/regional-analysis")
+async def regional_analysis(request: MarketRequest, db: Session = Depends(get_db)):
+    cached = db.query(MarketAnalysis)\
+               .filter_by(market=request.market, analysis_type="regional")\
+               .order_by(MarketAnalysis.created_at.desc())\
+               .first()
+    if cached:
+        return {"success": True, "data": cached.data, "cached": True}
+
+    result = get_regional_analysis(request.market)
+    db.add(MarketAnalysis(market=request.market, analysis_type="regional", data=result))
+    db.commit()
+    return {"success": True, "data": result, "cached": False}
+
+@app.post("/api/market/end-user-analysis")
+async def end_user_analysis(request: MarketRequest, db: Session = Depends(get_db)):
+    cached = db.query(MarketAnalysis)\
+               .filter_by(market=request.market, analysis_type="end_user")\
+               .order_by(MarketAnalysis.created_at.desc())\
+               .first()
+    if cached:
+        return {"success": True, "data": cached.data, "cached": True}
+
+    result = get_end_user_analysis(request.market)
+    db.add(MarketAnalysis(market=request.market, analysis_type="end_user", data=result))
+    db.commit()
+    return {"success": True, "data": result, "cached": False}
+
+@app.post("/api/market/product-categories")
+async def product_categories(request: MarketRequest, db: Session = Depends(get_db)):
+    cached = db.query(MarketAnalysis)\
+               .filter_by(market=request.market, analysis_type="product_categories")\
+               .order_by(MarketAnalysis.created_at.desc())\
+               .first()
+    if cached:
+        return {"success": True, "data": cached.data, "cached": True}
+
+    result = get_product_categories(request.market)
+    
+    db.add(MarketAnalysis(market=request.market, analysis_type="product_categories", data=result))
     db.commit()
     return {"success": True, "data": result, "cached": False}
 

@@ -1,9 +1,11 @@
 // components/Dashboard.js - Fixed version with proper input handling
+import DownloadModal from './DownloadModal';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
-  BarChart3, 
+  BarChart3,
+  File,
+  Table, 
   Building2, 
   Search, 
   FileText, 
@@ -33,8 +35,185 @@ import {
   Target,
   ExternalLink,
   Copy,
-  Check
+  Check,
+  Package,
+  Users,
+  MapPin
 } from 'lucide-react';
+
+// === HELPERS (single source of truth; keep these above MarketExplorerTab) ===
+
+// 1) Build HTML tables from markdown-style rows and make first-column entries clickable
+const processTableRows = (rows, analysisType) => {
+  if (!rows || !rows.length) return '';
+
+  let html = '<div class="overflow-x-auto my-6"><table class="min-w-full bg-white border border-gray-200 rounded-lg shadow-sm">';
+
+  rows.forEach((row, index) => {
+    if (row.includes('---')) return; // skip separators like |---|---|
+    const cells = row.split('|').map(c => c.trim()).filter(Boolean);
+    if (!cells.length) return;
+
+    if (index === 0) {
+      html += '<thead class="bg-gray-50"><tr>';
+      cells.forEach(cell => {
+        html += `<th class="px-4 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wider border-b border-gray-200">${cell}</th>`;
+      });
+      html += '</tr></thead><tbody class="divide-y divide-gray-200">';
+    } else {
+      html += '<tr class="hover:bg-gray-50 transition-colors">';
+      cells.forEach((cell, cellIndex) => {
+        // Markdown [text](url)
+        let formattedCell = cell.replace(
+          /\[([^\]]+)\]\(([^)]+)\)/g,
+          '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 underline">$1</a>'
+        );
+        // Bare URLs (no lookbehind)
+        formattedCell = formattedCell.replace(
+          /(https?:\/\/[^\s<>"{}|\\^`[\]]+)/g,
+          '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 underline">$1</a>'
+        );
+
+        // Clickable first column for vertical/horizontal
+        if (
+          cellIndex === 0 &&
+          !formattedCell.includes('<a ') &&
+          (analysisType === 'vertical' || analysisType === 'horizontal')
+        ) {
+          const clean = formattedCell.replace(/\*\*/g, '').trim();
+          if (clean.length > 2) {
+            html += `<td class="px-4 py-3 text-sm border-b border-gray-100"><button data-market-name="${clean}" data-analysis-type="${analysisType}" class="clickable-market-entry text-left w-full text-blue-700 hover:text-blue-900 hover:bg-blue-50 px-2 py-1 rounded transition-colors font-medium" title="Click to analyze ${clean}">${formattedCell}</button></td>`;
+            return;
+          }
+        }
+        html += `<td class="px-4 py-3 text-sm text-gray-700 border-b border-gray-100">${formattedCell}</td>`;
+      });
+      html += '</tr>';
+    }
+  });
+
+  html += '</tbody></table></div>';
+  return html;
+};
+
+const formatTables = (content, analysisType = 'general') => {
+  const lines = (content || '').split('\n');
+  let result = [];
+  let inTable = false;
+  let tableRows = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = (lines[i] || '').trim();
+    if (line.includes('|') && line.split('|').length >= 3) {
+      if (!inTable) { inTable = true; tableRows = []; }
+      tableRows.push(line);
+    } else {
+      if (inTable) {
+        result.push(processTableRows(tableRows, analysisType));
+        inTable = false;
+        tableRows = [];
+      }
+      result.push(lines[i]);
+    }
+  }
+  if (inTable && tableRows.length) result.push(processTableRows(tableRows, analysisType));
+  return result.join('\n');
+};
+
+// 2) Lists
+const formatLists = (content) => {
+  let out = content;
+  out = out.replace(/^(\d+\.\s+.*)$/gm, (m, item) => `<li class="ml-6 mb-2 text-gray-700">${item.replace(/^\d+\.\s+/, '')}</li>`);
+  out = out.replace(/^([-*]\s+.*)$/gm, (m, item) => `<li class="ml-6 mb-2 text-gray-700 list-disc">${item.replace(/^[-*]\s+/, '')}</li>`);
+  out = out.replace(/(<li[^>]*>.*<\/li>\s*)+/gs, (block) => {
+    const listType = /\d+\./.test(block) ? 'ol' : 'ul';
+    return `<${listType} class="my-4 space-y-1">${block}</${listType}>`;
+  });
+  return out;
+};
+
+// 3) Bare URL linkifier that doesn’t touch URLs already in <a>
+const linkifyBareUrls = (htmlString) => {
+  const container = document.createElement('div');
+  container.innerHTML = htmlString;
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+  const urlRegex = /(https?:\/\/[^\s<>"{}|\\^`[\]]+)/g;
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+  textNodes.forEach((node) => {
+    let p = node.parentNode;
+    while (p) { if (p.tagName?.toLowerCase() === 'a') return; p = p.parentNode; }
+    const txt = node.nodeValue;
+    if (!urlRegex.test(txt)) return;
+
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    txt.replace(urlRegex, (m, url, idx) => {
+      if (idx > last) frag.appendChild(document.createTextNode(txt.slice(last, idx)));
+      const a = document.createElement('a');
+      a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.className = 'text-blue-600 hover:text-blue-800 underline inline-flex items-center';
+      a.innerHTML = `${url} <svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>`;
+      frag.appendChild(a);
+      last = idx + m.length;
+      return m;
+    });
+    if (last < txt.length) frag.appendChild(document.createTextNode(txt.slice(last)));
+    node.parentNode.replaceChild(frag, node);
+  });
+
+  return container.innerHTML;
+};
+
+// 4) Final formatter that uses the above
+const formatContent = (content, analysisType = 'general') => {
+  if (!content) return '';
+  let formatted = content;
+
+  // markdown links first
+  formatted = formatted.replace(
+    /\[([^\]]+)\]\(([^)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 underline inline-flex items-center">$1 <svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></a>'
+  );
+
+  // tables + lists (now in scope because helpers are above)
+  formatted = formatTables(formatted, analysisType);
+  formatted = formatLists(formatted);
+
+  // remaining bare URLs
+  formatted = linkifyBareUrls(formatted);
+
+  // emails
+  formatted = formatted.replace(
+    /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g,
+    '<a href="mailto:$1" class="text-blue-600 hover:text-blue-800 underline">$1</a>'
+  );
+
+  // markdown-ish text
+  formatted = formatted
+    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-gray-900">$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em class="italic text-gray-800">$1</em>')
+    .replace(/```([\s\S]*?)```/g, '<pre class="bg-gray-100 border border-gray-200 rounded-lg p-4 text-sm font-mono overflow-x-auto my-4"><code>$1</code></pre>')
+    .replace(/`([^`]+)`/g, '<code class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-sm font-mono">$1</code>')
+    .replace(/^### (.*$)/gm, '<h3 class="text-lg font-semibold text-gray-900 mt-6 mb-3 pb-2 border-b border-gray-200">$1</h3>')
+    .replace(/^## (.*$)/gm, '<h2 class="text-xl font-bold text-gray-900 mt-8 mb-4 pb-2 border-b-2 border-gray-300">$1</h2>')
+    .replace(/^# (.*$)/gm, '<h1 class="text-2xl font-bold text-gray-900 mt-8 mb-6 pb-3 border-b-2 border-blue-200">$1</h1>')
+    .replace(/^> (.*$)/gm, '<blockquote class="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-blue-50 italic text-gray-700">$1</blockquote>');
+
+  // paragraphs/line breaks
+  formatted = formatted
+    .replace(/\n\n/g, '</p><p class="mb-4 text-gray-700 leading-relaxed">')
+    .replace(/\n/g, '<br/>');
+
+  if (!/(<p class=|<table|<h1|<h2|<h3)/.test(formatted)) {
+    formatted = '<p class="mb-4 text-gray-700 leading-relaxed">' + formatted + '</p>';
+  }
+  return formatted;
+};
+// === END HELPERS ===
+
+
 
 // Move tab components outside Dashboard to prevent re-creation on each render
 const MarketExplorerTab = ({ 
@@ -44,7 +223,10 @@ const MarketExplorerTab = ({
   selectedHorizontal, setSelectedHorizontal, handleSegmentSelection, segmentDetails, 
   segmentCompanies, loadingSegment, ActionButton, LoadingSpinner, ErrorDisplay, 
   FormattedContent, TrendingUp, Globe, Layers, Target, BarChart3, Download, setError,
-  RefreshCw, sidebarOpen, setSidebarOpen, sidebarData, AnalysisSidebar, Building2
+  RefreshCw, sidebarOpen, setSidebarOpen, sidebarData, AnalysisSidebar, Building2,selectedCategories, 
+  setSelectedCategories, analysisCategories, companiesData, setCompaniesData,technologyData, setTechnologyData,
+  productCategoryData, setProductCategoryData, regionData, setRegionData,endUserData,setEndUserData, setDownloadModalOpen,
+  setCombinedDownloadData
 }) => (
   <div className="space-y-8">
     {/* Analysis Sidebar */}
@@ -61,7 +243,7 @@ const MarketExplorerTab = ({
       </h2>
       
       {/* Market Input Form */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6 no-print">
         <div className="lg:col-span-3">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Enter a market (e.g. AI, Plastics, EV Batteries)
@@ -79,6 +261,7 @@ const MarketExplorerTab = ({
             }}
           />
         </div>
+        {/* Quick preset buttons 
         <div className="flex items-end">
           <ActionButton 
             onClick={() => analyzeCompleteMarket(marketInput)}
@@ -89,9 +272,20 @@ const MarketExplorerTab = ({
             Analyze Market
           </ActionButton>
         </div>
+        */}
+        <div className="flex items-end">
+          <ActionButton 
+            onClick={() => analyzeCompleteMarket(marketInput)}
+            loading={loading}
+            disabled={!marketInput.trim() || !Object.values(selectedCategories).some(Boolean)}
+            icon={TrendingUp}
+          >
+            Analyze Selected Categories ({Object.values(selectedCategories).filter(Boolean).length})
+          </ActionButton>
+        </div>
       </div>
 
-      {/* Individual Analysis Buttons */}
+      {/* Individual Analysis Buttons 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <ActionButton 
           onClick={() => analyzeMarket(marketInput, 'global')}
@@ -121,11 +315,64 @@ const MarketExplorerTab = ({
           Horizontal Markets
         </ActionButton>
       </div>
+      */}
 
-      {error && <ErrorDisplay error={error} onRetry={() => setError(null)} />}
-      {loading && <LoadingSpinner message="Analyzing market data..." />}
+      {/* Category Selection Checkboxes */}
+      <div className="mb-6 p-4 bg-gray-50 rounded-lg no-print">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+          <Filter className="w-5 h-5 text-blue-600 mr-2" />
+          Select Analysis Categories
+        </h3>
+        
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          {analysisCategories.map(category => {
+            const Icon = category.icon;
+            return (
+              <label key={category.key} className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedCategories[category.key]}
+                  onChange={(e) => setSelectedCategories(prev => ({
+                    ...prev,
+                    [category.key]: e.target.checked
+                  }))}
+                  //disabled={category.always}
+                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <Icon className="w-4 h-4 text-gray-600" />
+                <span className="text-sm font-medium text-gray-700">{category.label}</span>
+                
+              </label>
+            );
+          })}
+        </div>
+        
+        {/* Quick preset buttons */}
+        <div className="flex flex-wrap gap-2 mb-3">
+          <button
+            onClick={() => setSelectedCategories({...selectedCategories, applications: true, topCompanies: true})}
+            className="px-3 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-full"
+          >
+            Quick: Apps + Companies
+          </button>
+          <button
+            onClick={() => setSelectedCategories({...selectedCategories, productCategory: true, technology: true})}
+            className="px-3 py-1 text-xs bg-green-100 hover:bg-green-200 text-green-800 rounded-full"
+          >
+            Product Focus
+          </button>
+        </div>
+        
+        <p className="text-sm text-gray-600">
+          💡 Select only relevant categories for your market to get focused results
+        </p>
+      </div>
+
+      {error &&<div className="no-print"> <ErrorDisplay error={error} onRetry={() => setError(null)} /></div>}
+      {loading && <div className="no-print"><LoadingSpinner message="Analyzing market data..." /></div>}
 
       {/* Results Display */}
+      <div id="print-root">
       {globalMd && (
         <FormattedContent
           content={globalMd}
@@ -147,13 +394,58 @@ const MarketExplorerTab = ({
       {horizontalData && (
         <FormattedContent
           content={horizontalData}
-          title=" Horizontal Sub-markets"
-          analysisType="horizontal"
+          title=" 🎯 Market Applications"
+          analysisType="applications"
           onClose={() => setHorizontalData(null)}
         />
       )}
+      {technologyData && (
+        <FormattedContent
+          content={technologyData}
+          title="⚡ Technology Segments"
+          analysisType="technology"
+          onClose={() => setTechnologyData(null)}
+        />
+      )}
 
-      {/* Download Button */}
+      {productCategoryData && (
+        <FormattedContent
+          content={productCategoryData}
+          title="📦 Product Categories"
+          analysisType="productCategory"
+          onClose={() => setProductCategoryData(null)}
+        />
+      )}
+
+      {companiesData && (
+        <FormattedContent
+          content={companiesData}
+          title="🏢 Top Companies"
+          analysisType="companies"
+          onClose={() => setCompaniesData(null)}
+        />
+      )}
+
+      {regionData && (
+        <FormattedContent
+          content={regionData}
+          title="🗺️ Regional Analysis"
+          analysisType="region"
+          onClose={() => setRegionData(null)}
+        />
+      )}
+
+      {endUserData && (
+        <FormattedContent
+          content={endUserData}
+          title="👥 End-User Segments"
+          analysisType="endUser"
+          onClose={() => setEndUserData(null)}
+        />
+      )}
+      </div>
+
+      {/* 
       {(globalMd || verticalData || horizontalData) && (
         <div className="mt-6">
           <ActionButton
@@ -173,7 +465,11 @@ const MarketExplorerTab = ({
             Download Markdown
           </ActionButton>
         </div>
-      )}
+      )} */}
+
+      {/* Download Button */}
+      {/* Download Button */}
+      
     </div>
     
     
@@ -606,6 +902,7 @@ const HistoryTab = (props) => {
     setGlobalMd,
     setVerticalData,
     setHorizontalData,
+    setTechnologyData,
     setMarketAnalyzed,
     setActiveTab,
     setUploadedPdfName,
@@ -863,11 +1160,30 @@ const Dashboard = () => {
   const [selectedVertical, setSelectedVertical] = useState('');
   const [selectedHorizontal, setSelectedHorizontal] = useState('');
   
+  // Persistent analysis history state
+  const [analysisHistory, setAnalysisHistory] = useState([]);
+  const [currentAnalysisIndex, setCurrentAnalysisIndex] = useState(null);
   // New state for segment details
   const [segmentDetails, setSegmentDetails] = useState({});
   const [segmentCompanies, setSegmentCompanies] = useState({});
   const [loadingSegment, setLoadingSegment] = useState(null);
+  const [selectedCategories, setSelectedCategories] = useState({
+    global: true,           // Always selected by default
+    vertical: true,         // Keep existing vertical
+    applications: false,    // Renamed from horizontal
+    productCategory: false,
+    technology: false,
+    endUser: false,
+    topCompanies: false,
+    region: false
+  });
   
+  // New state for additional category data
+  const [companiesData, setCompaniesData] = useState(null);
+  const [productCategoryData, setProductCategoryData] = useState(null);
+  const [technologyData, setTechnologyData] = useState(null);
+  const [endUserData, setEndUserData] = useState(null);
+  const [regionData, setRegionData] = useState(null);
   // New state for sidebar analysis results
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarData, setSidebarData] = useState({
@@ -877,7 +1193,8 @@ const Dashboard = () => {
     companies: '',
     loading: false
   });
-  
+  const [downloadModalOpen, setDownloadModalOpen] = useState(false);
+  const [combinedDownloadData, setCombinedDownloadData] = useState(null);
   // PDF State
   const [uploadedPdfs, setUploadedPdfs] = useState([]);
   const [pdfChunks, setPdfChunks] = useState([]);
@@ -914,6 +1231,16 @@ const Dashboard = () => {
   //const API_BASE_URL = 'http://127.0.0.1:8000/api';
   const API_BASE_URL = "https://market-research-website.onrender.com/api";
   
+  const analysisCategories = [
+    { key: 'global', label: 'Global Overview', icon: Globe, always: true },
+    { key: 'vertical', label: 'Vertical Segments', icon: Layers },
+    { key: 'applications', label: 'By Application', icon: Target },
+    { key: 'productCategory', label: 'By Product Category', icon: Package },
+    { key: 'technology', label: 'By Technology', icon: Zap },
+    { key: 'endUser', label: 'By End-User', icon: Users },
+    { key: 'topCompanies', label: 'Top Companies', icon: Building2 },
+    { key: 'region', label: 'By Region', icon: MapPin }
+  ];
 
   // Toast notification system
   const showToast = (message, type = 'info') => {
@@ -1006,64 +1333,65 @@ const Dashboard = () => {
   const horizontalEntries = useMemo(() => extractMarketEntries(horizontalData), [horizontalData]);
 
   // Enhanced format text content for better display with tables and links
-  const formatContent = (content, analysisType = 'general') => {
-    if (!content) return '';
-    
-    let formatted = content;
-    
-    // First, handle markdown-style links [text](url) before other URL processing
-    formatted = formatted.replace(
-      /\[([^\]]+)\]\(([^)]+)\)/g, 
-      '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 underline inline-flex items-center">$1 <svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></a>'
-    );
-    
-    // Handle tables (with clickable functionality based on analysis type)
-    formatted = formatTables(formatted, analysisType);
-    
-    // Convert remaining bare URLs to clickable links (but avoid URLs that are already in <a> tags)
-    formatted = formatted.replace(
-      /(?<!href="|">)(https?:\/\/[^\s<>"{}|\\^`[\]]+)(?![^<]*<\/a>)/g, 
-      '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 underline inline-flex items-center">$1 <svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></a>'
-    );
-    
-    // Convert email addresses to clickable links
-    formatted = formatted.replace(
-      /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g,
-      '<a href="mailto:$1" class="text-blue-600 hover:text-blue-800 underline">$1</a>'
-    );
-    
-    // Convert markdown-like formatting to HTML
-    formatted = formatted
-      // Bold text
-      .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-gray-900">$1</strong>')
-      // Italic text
-      .replace(/\*(.*?)\*/g, '<em class="italic text-gray-800">$1</em>')
-      // Code blocks
-      .replace(/```([\s\S]*?)```/g, '<pre class="bg-gray-100 border border-gray-200 rounded-lg p-4 text-sm font-mono overflow-x-auto my-4"><code>$1</code></pre>')
-      // Inline code
-      .replace(/`([^`]+)`/g, '<code class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-sm font-mono">$1</code>')
-      // Headers
-      .replace(/^### (.*$)/gm, '<h3 class="text-lg font-semibold text-gray-900 mt-6 mb-3 pb-2 border-b border-gray-200">$1</h3>')
-      .replace(/^## (.*$)/gm, '<h2 class="text-xl font-bold text-gray-900 mt-8 mb-4 pb-2 border-b-2 border-gray-300">$1</h2>')
-      .replace(/^# (.*$)/gm, '<h1 class="text-2xl font-bold text-gray-900 mt-8 mb-6 pb-3 border-b-2 border-blue-200">$1</h1>')
-      // Blockquotes
-      .replace(/^> (.*$)/gm, '<blockquote class="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-blue-50 italic text-gray-700">$1</blockquote>');
-    
-    // Handle lists with proper nesting
-    formatted = formatLists(formatted);
-    
-    // Handle line breaks and paragraphs
-    formatted = formatted
-      .replace(/\n\n/g, '</p><p class="mb-4 text-gray-700 leading-relaxed">')
-      .replace(/\n/g, '<br/>');
-    
-    // Wrap in paragraph tags if not already wrapped
-    if (!formatted.includes('<p class=') && !formatted.includes('<table') && !formatted.includes('<h1') && !formatted.includes('<h2') && !formatted.includes('<h3')) {
-      formatted = '<p class="mb-4 text-gray-700 leading-relaxed">' + formatted + '</p>';
-    }
-    
-    return formatted;
-  };
+// Enhanced format text content for better display with tables and links
+const formatContent = (content, analysisType = 'general') => {
+  if (!content) return '';
+
+  let formatted = content;
+
+  // 1) Markdown-style links [text](url) → anchor tags first
+  formatted = formatted.replace(
+    /\[([^\]]+)\]\(([^)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 underline inline-flex items-center">$1 <svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></a>'
+  );
+
+  // 2) Tables (HTML output with clickable cells based on analysisType)
+  formatted = formatTables(formatted, analysisType);
+
+  // 3) Convert remaining bare URLs to links, but DO NOT touch URLs already inside <a>
+  formatted = linkifyBareUrls(formatted);
+
+  // 4) Email addresses → mailto:
+  formatted = formatted.replace(
+    /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g,
+    '<a href="mailto:$1" class="text-blue-600 hover:text-blue-800 underline">$1</a>'
+  );
+
+  // 5) Markdown-ish text styles
+  formatted = formatted
+    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-gray-900">$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em class="italic text-gray-800">$1</em>')
+    .replace(/```([\s\S]*?)```/g, '<pre class="bg-gray-100 border border-gray-200 rounded-lg p-4 text-sm font-mono overflow-x-auto my-4"><code>$1</code></pre>')
+    .replace(/`([^`]+)`/g, '<code class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-sm font-mono">$1</code>')
+    .replace(/^### (.*$)/gm, '<h3 class="text-lg font-semibold text-gray-900 mt-6 mb-3 pb-2 border-b border-gray-200">$1</h3>')
+    .replace(/^## (.*$)/gm, '<h2 class="text-xl font-bold text-gray-900 mt-8 mb-4 pb-2 border-b-2 border-gray-300">$1</h2>')
+    .replace(/^# (.*$)/gm, '<h1 class="text-2xl font-bold text-gray-900 mt-8 mb-6 pb-3 border-b-2 border-blue-200">$1</h1>')
+    .replace(/^> (.*$)/gm, '<blockquote class="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-blue-50 italic text-gray-700">$1</blockquote>');
+
+  // 6) Lists (uses your existing formatter)
+  formatted = formatLists(formatted);
+
+  // 7) Line breaks / paragraphs
+  formatted = formatted
+    .replace(/\n\n/g, '</p><p class="mb-4 text-gray-700 leading-relaxed">')
+    .replace(/\n/g, '<br/>');
+
+  // 8) Wrap if not already structured
+  if (
+    !formatted.includes('<p class=') &&
+    !formatted.includes('<table') &&
+    !formatted.includes('<h1') &&
+    !formatted.includes('<h2') &&
+    !formatted.includes('<h3')
+  ) {
+    formatted = '<p class="mb-4 text-gray-700 leading-relaxed">' + formatted + '</p>';
+  }
+
+  return formatted;
+};
+
+
+ 
 
   // Helper function to format tables with clickable functionality
   const formatTables = (content, analysisType = 'general') => {
@@ -1101,6 +1429,66 @@ const Dashboard = () => {
     
     return result.join('\n');
   };
+
+  // Safely linkify bare URLs without touching URLs already inside <a> tags
+const linkifyBareUrls = (htmlString) => {
+  // Create a container to work with DOM nodes
+  const container = document.createElement('div');
+  container.innerHTML = htmlString;
+
+  // Walk text nodes and replace URLs with anchors
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+  const urlRegex = /(https?:\/\/[^\s<>"{}|\\^`[\]]+)/g;
+
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+  textNodes.forEach((textNode) => {
+    // If this text node is already inside an <a>, skip it
+    let p = textNode.parentNode;
+    while (p) {
+      if (p.tagName && p.tagName.toLowerCase() === 'a') return;
+      p = p.parentNode;
+    }
+
+    const text = textNode.nodeValue;
+    if (!urlRegex.test(text)) return;
+
+    // Build a fragment with anchors
+    const frag = document.createDocumentFragment();
+    let lastIndex = 0;
+    text.replace(urlRegex, (match, url, offset) => {
+      // text before the url
+      if (offset > lastIndex) {
+        frag.appendChild(document.createTextNode(text.slice(lastIndex, offset)));
+      }
+      // the link
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.className = 'text-blue-600 hover:text-blue-800 underline inline-flex items-center';
+      a.innerHTML = `${url} <svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>`;
+      frag.appendChild(a);
+
+      lastIndex = offset + match.length;
+      return match;
+    });
+
+    // trailing text
+    if (lastIndex < text.length) {
+      frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+
+    // Replace the original text node
+    textNode.parentNode.replaceChild(frag, textNode);
+  });
+
+  return container.innerHTML;
+};
+
+
+ 
 
   // Helper function to process table rows into HTML with clickable entries
   const processTableRows = (rows, analysisType) => {
@@ -1237,6 +1625,8 @@ const Dashboard = () => {
     }
   };
 
+  {/*
+
   const analyzeCompleteMarket = async (market) => {
     setLoading(true);
     setError(null);
@@ -1261,7 +1651,90 @@ const Dashboard = () => {
       setLoading(false);
     }
   };
+*/}
+  const analyzeCompleteMarket = async (market) => {
+    setLoading(true);
+    setError(null);
+    try {
+      showToast('Running selected market analysis...', 'info');
+      
+      const promises = [];
+      const selectedKeys = Object.keys(selectedCategories).filter(key => selectedCategories[key]);
+      
+      selectedKeys.forEach(key => {
+        switch(key) {
+          case 'global':
+            promises.push(
+              apiCall('/market/global-overview', 'POST', { market }).then(r => ({key, data: r.data}))
+            );
+            break;
+          case 'vertical':
+            promises.push(
+              apiCall('/market/vertical-segments', 'POST', { market }).then(r => ({key, data: r.data}))
+            );
+            break;
+          case 'applications':
+            promises.push(
+              apiCall('/market/applications', 'POST', { market }).then(r => ({key, data: r.data}))
+            );
+            break;
 
+            case 'technology':
+              promises.push(
+                apiCall('/market/technology-segments', 'POST', { market }).then(r => ({key, data: r.data}))
+              );
+              break;
+
+          case 'topCompanies':
+            promises.push(
+              apiCall('/company/top-companies', 'POST', { submarket: market }).then(r => ({key, data: r.data}))
+            );
+            break;
+
+          case 'productCategory':
+            promises.push(
+              apiCall('/market/product-categories', 'POST', { market }).then(r => ({key, data: r.data}))
+            );
+            break;
+
+          case 'region':
+            promises.push(
+              apiCall('/market/regional-analysis', 'POST', { market }).then(r => ({key, data: r.data}))
+            );
+            break;
+
+          case 'endUser':
+            promises.push(
+              apiCall('/market/end-user-analysis', 'POST', { market }).then(r => ({key, data: r.data}))
+            );
+            break;
+        }
+      });
+      
+      const results = await Promise.all(promises);
+      
+      // Update state based on results
+      results.forEach(({key, data}) => {
+        switch(key) {
+          case 'global': setGlobalMd(data); break;
+          case 'vertical': setVerticalData(data); break;
+          case 'applications': setHorizontalData(data); break;
+          case 'technology': setTechnologyData(data); break;
+          case 'productCategory': setProductCategoryData(data); break;
+          case 'topCompanies': setCompaniesData(data); break;
+          case 'region': setRegionData(data); break;
+          case 'endUser': setEndUserData(data); break;
+        }
+      });
+      
+      setMarketAnalyzed(market);
+      showToast(`Analysis completed for ${selectedKeys.length} categories!`, 'success');
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
   const analyzeSubmarket = async (submarket, type) => {
     console.log(`Starting analysis for submarket: "${submarket}" of type: ${type}`);
     setLoadingSegment(submarket);
@@ -1311,8 +1784,9 @@ const Dashboard = () => {
     // Always fetch fresh data when a segment is selected
     await analyzeSubmarket(segment, type);
   };
-
+ 
   // Function to handle table cell clicks for analysis (for clickable tables)
+  {/*
   const analyzeFromTable = useCallback(async (marketName, analysisType) => {
     console.log(`Analyzing from table: ${marketName} (${analysisType})`);
     
@@ -1354,7 +1828,90 @@ const Dashboard = () => {
       }));
       showToast(`Failed to analyze: ${marketName}`, 'error');
     }
-  }, [apiCall, formatContent, showToast]);
+  }, [apiCall, formatContent, showToast]); */}
+
+  const analyzeFromTable = useCallback(async (marketName, analysisType) => {
+    console.log(`Analyzing from table: ${marketName} (${analysisType})`);
+    
+    // Check if we already have this analysis in history
+    const existingAnalysis = analysisHistory.find(
+      item => item.marketName === marketName && item.analysisType === analysisType && !item.loading
+    );
+    
+    if (existingAnalysis) {
+      // Use cached analysis
+      setSidebarData(existingAnalysis);
+      setCurrentAnalysisIndex(existingAnalysis.id);
+      setSidebarOpen(true);
+      showToast(`Loaded cached analysis for: ${marketName}`, 'success');
+      return;
+    }
+    
+    // Start new analysis
+    const analysisId = Date.now();
+    const initialData = {
+      marketName,
+      analysisType,
+      metrics: '',
+      companies: '',
+      loading: true,
+      timestamp: new Date().toLocaleString(),
+      id: analysisId
+    };
+    
+    setSidebarData(initialData);
+    setSidebarOpen(true);
+    setCurrentAnalysisIndex(analysisId);
+    
+    // Add to history
+    setAnalysisHistory(prev => {
+      const filtered = prev.filter(item => 
+        !(item.marketName === marketName && item.analysisType === analysisType)
+      );
+      return [initialData, ...filtered].slice(0, 10); // Keep max 10
+    });
+    
+    try {
+      const fullQuery = marketAnalyzed ? `${marketAnalyzed} - ${marketName}` : marketName;
+      const [metricsResponse, companiesResponse] = await Promise.all([
+        apiCall('/market/detailed-metrics', 'POST', { market: fullQuery }),
+        apiCall('/company/top-companies', 'POST', { submarket: fullQuery })
+      ]);
+      
+      const completedAnalysis = {
+        marketName,
+        analysisType,
+        metrics: formatContent(metricsResponse.data),
+        companies: formatContent(companiesResponse.data),
+        loading: false,
+        timestamp: new Date().toLocaleString(),
+        id: analysisId
+      };
+      
+      setSidebarData(completedAnalysis);
+      
+      // Update history with completed analysis
+      setAnalysisHistory(prev => 
+        prev.map(item => item.id === analysisId ? completedAnalysis : item)
+      );
+      
+      showToast(`Analysis completed for: ${marketName}`, 'success');
+    } catch (error) {
+      console.error('Error in analyzeFromTable:', error);
+      const errorAnalysis = {
+        ...initialData,
+        loading: false,
+        metrics: '<p class="text-red-600">Failed to load metrics</p>',
+        companies: '<p class="text-red-600">Failed to load company data</p>'
+      };
+      
+      setSidebarData(errorAnalysis);
+      setAnalysisHistory(prev => 
+        prev.map(item => item.id === analysisId ? errorAnalysis : item)
+      );
+      showToast(`Failed to analyze: ${marketName}`, 'error');
+    }
+  }, [apiCall, formatContent, showToast, analysisHistory, marketAnalyzed]);
 
   // Set up event delegation for clickable table entries
   useEffect(() => {
@@ -1585,7 +2142,6 @@ const Dashboard = () => {
   // Sidebar Component for Market Analysis Results
   const AnalysisSidebar = ({ isOpen, data, onClose }) => (
     <>
-      {/* Overlay */}
       {isOpen && (
         <div 
           className="fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity"
@@ -1593,12 +2149,230 @@ const Dashboard = () => {
         />
       )}
       
-      {/* Sidebar */}
       <div className={`fixed right-0 top-0 h-full w-96 bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50 ${
         isOpen ? 'translate-x-0' : 'translate-x-full'
       }`}>
         <div className="flex flex-col h-full">
-          {/* Header */}
+          {/* Enhanced Header with History Navigation */}
+          <div className="border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+            <div className="flex items-center justify-between p-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                  <BarChart3 className="w-5 h-5 text-blue-600 mr-2" />
+                  Market Analysis
+                </h3>
+                <p className="text-sm text-gray-600">
+                  {data.marketName} • {data.analysisType} segment
+                </p>
+              </div>
+              <button onClick={onClose} className="text-gray-500 hover:text-gray-700 p-1 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Analysis History Tabs */}
+            {analysisHistory.length > 0 && (
+              <div className="px-4 pb-2">
+                <div className="flex space-x-1 overflow-x-auto">
+                  {analysisHistory.slice(0, 3).map((analysis) => (
+                    <button
+                      key={analysis.id}
+                      onClick={() => {
+                        setSidebarData(analysis);
+                        setCurrentAnalysisIndex(analysis.id);
+                      }}
+                      className={`px-3 py-1 text-xs rounded-full whitespace-nowrap transition-colors ${
+                        currentAnalysisIndex === analysis.id 
+                          ? 'bg-blue-600 text-white' 
+                          : 'bg-white text-blue-600 hover:bg-blue-100'
+                      }`}
+                      title={`${analysis.marketName} - ${analysis.analysisType}`}
+                    >
+                      {analysis.marketName.slice(0, 12)}...
+                    </button>
+                  ))}
+                  
+                  {analysisHistory.length > 3 && (
+                    <div className="relative group">
+                      <button className="px-3 py-1 text-xs bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200">
+                        +{analysisHistory.length - 3}
+                      </button>
+                      
+                      {/* Dropdown for more history items */}
+                      <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-48">
+                        {analysisHistory.slice(3).map((analysis) => (
+                          <button
+                            key={analysis.id}
+                            onClick={() => {
+                              setSidebarData(analysis);
+                              setCurrentAnalysisIndex(analysis.id);
+                            }}
+                            className="block w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            {analysis.marketName} - {analysis.analysisType}
+                            <div className="text-xs text-gray-500">{analysis.timestamp}</div>
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => {
+                            setAnalysisHistory([]);
+                            setCurrentAnalysisIndex(null);
+                          }}
+                          className="block w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 border-t border-gray-200"
+                        >
+                          Clear History
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Your recent analyses are saved here - click to switch between them
+                </p>
+              </div>
+            )}
+          </div>
+          
+          {/* Content - same as before */}
+          <div className="flex-1 overflow-y-auto p-6">
+            {data.loading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="text-center">
+                  <RefreshCw className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-4" />
+                  <p className="text-gray-600">Analyzing {data.marketName}...</p>
+                  <p className="text-sm text-gray-500 mt-2">This will be saved for quick access</p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Timestamp */}
+                <div className="flex items-center text-xs text-gray-500">
+                  <Clock className="w-3 h-3 mr-1" />
+                  Analyzed: {data.timestamp}
+                </div>
+                
+                {/* Metrics Section */}
+                <div>
+                  <h4 className="font-semibold text-gray-900 mb-3 flex items-center">
+                    <TrendingUp className="w-4 h-4 mr-2 text-blue-600" />
+                    Market Metrics
+                  </h4>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <div 
+                      className="prose prose-sm max-w-none"
+                      dangerouslySetInnerHTML={{ __html: data.metrics || "<p class='text-gray-500'>No metrics available</p>" }}
+                    />
+                  </div>
+                </div>
+                
+                {/* Companies Section */}
+                <div>
+                  <h4 className="font-semibold text-gray-900 mb-3 flex items-center">
+                    <Building2 className="w-4 h-4 mr-2 text-green-600" />
+                    Top Companies
+                  </h4>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <div 
+                      className="prose prose-sm max-w-none"
+                      dangerouslySetInnerHTML={{ __html: data.companies || "<p class='text-gray-500'>No company data available</p>" }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          
+          {/* Enhanced Footer */}
+          <div className="p-4 border-t border-gray-200 bg-gray-50">
+            <div className="flex space-x-2">
+              {/*  
+              <button
+                onClick={() => {
+                  const content = `# ${data.marketName} Analysis\n\nAnalyzed: ${data.timestamp}\n\n## Metrics\n${data.metrics}\n\n## Companies\n${data.companies}`;
+                  const blob = new Blob([content], { type: 'text/markdown' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `${data.marketName.replace(' ', '_')}_analysis.md`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium flex items-center justify-center"
+                disabled={data.loading}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download
+              </button> */}
+
+              <button
+                onClick={() => {
+                  const sections = [];
+                  const push = (title, raw, type='general') => {
+                    if (!raw) return;
+                    const html = formatContent(raw, type);
+                    if (html && html.trim()) sections.push({ title, html });
+                  };
+
+                  // Sidebar shows a single analysis result (metrics + companies)
+                  push('Market Metrics', sidebarData?.metrics, sidebarData?.analysisType || 'general');
+                  push('Top Companies', sidebarData?.companies, 'companies');
+
+                  const payload = {
+                    marketName: sidebarData?.marketName || 'Market Analysis',
+                    analysisType: sidebarData?.analysisType || 'sidebar-analysis',
+                    timestamp: new Date().toLocaleString(),
+                    sections
+                  };
+
+                  setCombinedDownloadData(payload);
+                  setDownloadModalOpen(true);
+                }}
+                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium flex items-center justify-center"
+                disabled={data.loading}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download
+              </button>
+
+              <button
+                onClick={() => copyToClipboard(`${data.marketName}\n\nMetrics:\n${data.metrics}\n\nCompanies:\n${data.companies}`)}
+                className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors text-sm font-medium flex items-center justify-center"
+                disabled={data.loading}
+              >
+                <Copy className="w-4 h-4 mr-2" />
+                Copy
+              </button>
+            </div>
+            
+            {/* Analysis count indicator */}
+            {analysisHistory.length > 0 && (
+              <p className="text-xs text-center text-gray-500 mt-2">
+                {analysisHistory.length} analysis{analysisHistory.length !== 1 ? 'es' : ''} saved in session
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+  {/*
+ 
+  const AnalysisSidebar = ({ isOpen, data, onClose }) => (
+    <>
+       
+      {isOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity"
+          onClick={onClose}
+        />
+      )}
+      
+      
+      <div className={`fixed right-0 top-0 h-full w-96 bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50 ${
+        isOpen ? 'translate-x-0' : 'translate-x-full'
+      }`}>
+        <div className="flex flex-col h-full">
+          
           <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
             <div>
               <h3 className="text-lg font-semibold text-gray-900 flex items-center">
@@ -1617,7 +2391,7 @@ const Dashboard = () => {
             </button>
           </div>
           
-          {/* Content */}
+          
           <div className="flex-1 overflow-y-auto p-6">
             {data.loading ? (
               <div className="flex items-center justify-center py-12">
@@ -1629,7 +2403,7 @@ const Dashboard = () => {
               </div>
             ) : (
               <div className="space-y-6">
-                {/* Metrics Section */}
+                
                 <div>
                   <h4 className="font-semibold text-gray-900 mb-3 flex items-center">
                     <TrendingUp className="w-4 h-4 mr-2 text-blue-600" />
@@ -1643,7 +2417,7 @@ const Dashboard = () => {
                   </div>
                 </div>
                 
-                {/* Companies Section */}
+                
                 <div>
                   <h4 className="font-semibold text-gray-900 mb-3 flex items-center">
                     <Building2 className="w-4 h-4 mr-2 text-green-600" />
@@ -1660,7 +2434,7 @@ const Dashboard = () => {
             )}
           </div>
           
-          {/* Footer */}
+          
           <div className="p-4 border-t border-gray-200 bg-gray-50">
             <div className="flex space-x-2">
               <button
@@ -1692,6 +2466,7 @@ const Dashboard = () => {
       </div>
     </>
   );
+*/}
 
   // Tab configuration with stable component references
   const tabsConfig = [
@@ -1718,13 +2493,28 @@ const Dashboard = () => {
             setMarketInput={setMarketInput}
             analyzeCompleteMarket={analyzeCompleteMarket}
             analyzeMarket={analyzeMarket}
+            setDownloadModalOpen={setDownloadModalOpen}
+            setCombinedDownloadData={setCombinedDownloadData}
             globalMd={globalMd}
             setGlobalMd={setGlobalMd}
             verticalData={verticalData}
             setVerticalData={setVerticalData}
             horizontalData={horizontalData}
             setHorizontalData={setHorizontalData}
+            technologyData={technologyData}
+            setTechnologyData={setTechnologyData}
+            productCategoryData={productCategoryData}        // ADD THIS
+            setProductCategoryData={setProductCategoryData}  // ADD THIS
+            regionData={regionData}              // ADD THIS LINE
+            setRegionData={setRegionData}
+            endUserData={endUserData}
+            setEndUserData={setEndUserData}
             marketAnalyzed={marketAnalyzed}
+            selectedCategories={selectedCategories}
+            setSelectedCategories={setSelectedCategories}
+            analysisCategories={analysisCategories}
+            companiesData={companiesData}
+            setCompaniesData={setCompaniesData}
             verticalEntries={verticalEntries}
             horizontalEntries={horizontalEntries}
             selectedVertical={selectedVertical}
@@ -1735,12 +2525,17 @@ const Dashboard = () => {
             segmentDetails={segmentDetails}
             segmentCompanies={segmentCompanies}
             loadingSegment={loadingSegment}
+            ActionButton={ActionButton}
+            LoadingSpinner={LoadingSpinner}
+            ErrorDisplay={ErrorDisplay}
+            FormattedContent={FormattedContent}
             TrendingUp={TrendingUp}
             Globe={Globe}
             Layers={Layers}
             Target={Target}
             BarChart3={BarChart3}
             Download={Download}
+            setError={setError}
             RefreshCw={RefreshCw}
             sidebarOpen={sidebarOpen}
             setSidebarOpen={setSidebarOpen}
@@ -1994,6 +2789,15 @@ const Dashboard = () => {
           Clear Session Data
         </ActionButton>
       </div>
+      {/* Download Modal */}
+      <DownloadModal 
+        isOpen={downloadModalOpen}
+        onClose={() => {
+          setDownloadModalOpen(false);
+          setCombinedDownloadData(null);
+        }}
+        analysisData={combinedDownloadData || sidebarData}
+      />
     </div>
   );
 };
