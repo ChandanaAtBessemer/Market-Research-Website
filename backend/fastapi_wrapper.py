@@ -220,6 +220,7 @@ async def technology_segments(request: MarketRequest, db: Session = Depends(get_
     result = get_technology_segments(request.market)
     db.add(MarketAnalysis(market=request.market, analysis_type="technology_segments", data=result))
     db.commit()
+    return {"success": True, "data": result, "cached": False}
 
 @app.post("/api/market/regional-analysis")
 async def regional_analysis(request: MarketRequest, db: Session = Depends(get_db)):
