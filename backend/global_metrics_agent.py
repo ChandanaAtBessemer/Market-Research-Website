@@ -26,7 +26,7 @@ def get_global_overview(market: str, retries: int = 3) -> str:
                         "id": PROMPT_ID,
                         "version": PROMPT_VERSION
                         },
-                input=market,      # <-- just a string, not {"submarket": submarket}
+                input=market,      
                 temperature=0.3
             )
             final = next((o for o in response.output if getattr(o, "type", "") == "message"), None)
