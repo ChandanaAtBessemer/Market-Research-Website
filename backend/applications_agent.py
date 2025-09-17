@@ -10,13 +10,13 @@ client = OpenAI()
 
 # You'll need to create a new stored prompt for applications
 PROMPT_ID = "pmpt_68bfa6572d8c8197b5760c5faa41969800c1ea839cdcb54f"  # Update this with new prompt ID
-PROMPT_VERSION = "5"
+PROMPT_VERSION = "7"
 
 TOOLS = [
     {"type": "web_search_preview"}
 ]
 
-def get_market_applications(market: str, retries: int = 3) -> str:
+def get_market_applications(industry: str, retries: int = 3) -> str:
     for attempt in range(retries):
         try:
             print(f"Fetching applications for {industry} [attempt {attempt+1}]")
