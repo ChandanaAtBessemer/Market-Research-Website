@@ -7,6 +7,8 @@ from openai import OpenAI, RateLimitError
 
 load_dotenv()
 client = OpenAI()
+PROMPT_ID = "pmpt_68ca41a28ef88195bd130cfd400d0ffd0c23cf5ba367c327"  # Update this with new prompt ID
+PROMPT_VERSION = "1"
 
 TOOLS = [
     {"type": "web_search_preview"}
@@ -22,34 +24,11 @@ def get_end_user_analysis(industry: str, retries: int = 3) -> str:
         try:
             print(f"Fetching end-user analysis for {industry} [attempt {attempt+1}]")
             response = client.responses.create(
-                model="gpt-4o", 
-                input=[{
-                    "role": "user", 
-                    "content": f"""Search for current market data and analyze the {industry} market by END-USER segments. Focus on WHO uses these products/services.
-
-I need REAL DATA with actual market figures. Find current statistics and create a table:
-
-| End-User Segment | Market Size (USD) | Share (%) | Key Needs/Requirements | Growth Rate | Purchasing Behavior | Key Players Serving | Source|
-|------------------|-------------------|-----------|------------------------|-------------|---------------------|-------------------|----------------|
-
-For the {industry} market, identify major end-user categories such as:
-- Individual Consumers/Households  
-- Small/Medium Businesses
-- Large Enterprises
-- Government/Public Sector
-- Healthcare Providers
-- Educational Institutions
-- Industrial Manufacturers
-
-Search for recent market segmentation data showing:
-- Actual revenue/market size by end-user type
-- Real market share percentages
-- Growth rates by segment
-- Specific needs and requirements of each user group
-
-Do NOT use placeholder values. Find real 2023-2025 market data."""
-                }],
-                tools=[{"type": "web_search_preview"}],
+                prompt={
+                        "id": PROMPT_ID,
+                        "version": PROMPT_VERSION
+                        },
+                input=industry,
                 temperature=0.3
             )
             
@@ -62,13 +41,8 @@ Do NOT use placeholder values. Find real 2023-2025 market data."""
     return "Failed to get end-user analysis"
 
 def main():
-    import streamlit as st
-    st.title("Market End-User Analysis")
-    market = st.text_input("Market", value="Electric Vehicles")
-    if st.button("Get End-User Analysis"):
-        with st.spinner("Fetching data..."):
-            result = get_end_user_analysis(market)
-        st.markdown(result)
+    results = get_end_user_analysis("Plastic Market")
+    print(results)
 
 if __name__ == "__main__":
     main()
