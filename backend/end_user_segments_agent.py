@@ -8,7 +8,7 @@ from openai import OpenAI, RateLimitError
 load_dotenv()
 client = OpenAI()
 PROMPT_ID = "pmpt_68ca41a28ef88195bd130cfd400d0ffd0c23cf5ba367c327"  # Update this with new prompt ID
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
 
 TOOLS = [
     {"type": "web_search_preview"}

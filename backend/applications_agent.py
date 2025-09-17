@@ -10,7 +10,7 @@ client = OpenAI()
 
 # You'll need to create a new stored prompt for applications
 PROMPT_ID = "pmpt_68bfa6572d8c8197b5760c5faa41969800c1ea839cdcb54f"  # Update this with new prompt ID
-PROMPT_VERSION = "7"
+PROMPT_VERSION = "10"
 
 TOOLS = [
     {"type": "web_search_preview"}

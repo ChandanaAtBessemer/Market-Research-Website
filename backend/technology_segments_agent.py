@@ -10,7 +10,7 @@ client = OpenAI()
 
 # You'll need to create a new stored prompt for technology segmentation
 PROMPT_ID = "pmpt_68bfb28da9b88197b73220fb7ea78eb203fe75cfa56065f9"  # Update this with new prompt ID
-PROMPT_VERSION = "7"
+PROMPT_VERSION = "10"
 
 TOOLS = [
     {"type": "web_search_preview"}

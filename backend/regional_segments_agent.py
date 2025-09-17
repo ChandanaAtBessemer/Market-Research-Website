@@ -10,7 +10,7 @@ client = OpenAI()
 
 # You'll need to create a new stored prompt for regional analysis
 PROMPT_ID = "pmpt_68ca3e7bd6248196a2bdce6267d45ee20ce220380e811494"  # Update this with new prompt ID
-PROMPT_VERSION = "2"
+PROMPT_VERSION = "5"
 
 TOOLS = [
     {"type": "web_search_preview"}

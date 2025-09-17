@@ -10,7 +10,7 @@ client = OpenAI()
 
 # You'll need to create a new stored prompt for product categories
 PROMPT_ID = "pmpt_68c24f40e3048197b334d54591d657b00306289ef21fe211"  # Update this with new prompt ID
-PROMPT_VERSION = "3"
+PROMPT_VERSION = "5"
 
 TOOLS = [
     {"type": "web_search_preview"}
