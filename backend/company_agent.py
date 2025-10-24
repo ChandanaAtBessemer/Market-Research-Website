@@ -9,7 +9,7 @@ client = OpenAI()
 
 # ID and version of your stored prompt template
 PROMPT_ID = "pmpt_68842d6c0b448196a868674711e6639409c9f231eee31359"
-PROMPT_VERSION = "2"
+PROMPT_VERSION = "3"
 
 def get_top_companies(submarket: str) -> str:
     response = client.responses.create(
@@ -30,12 +30,16 @@ def get_top_companies(submarket: str) -> str:
 
 
 def main():
+    '''
     st.title("Top Companies by Submarket")
     submarket = st.text_input("Submarket", value="Plastics in Automotive")
     if st.button("Get Top Companies"):
         with st.spinner("Fetching data..."):
             result = get_top_companies(submarket)
         st.markdown(result)
+    '''
+    res = get_top_companies("Electric Vehicles - North America")
+    print(res)
 
 
 if __name__ == "__main__":

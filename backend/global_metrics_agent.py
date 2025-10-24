@@ -13,7 +13,7 @@ client = OpenAI()
 TOOLS = [{"type": "web_search_preview"}]
 
 PROMPT_ID = "pmpt_6887dbd520548196b288b61816a837a901c90dc46b715c8f"
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
 
 
 
@@ -41,12 +41,16 @@ def get_global_overview(market: str, retries: int = 3) -> str:
     return "⚠️ Failed to fetch global overview."
 
 def main():
+    '''
     st.title("Global Metrics of Market")
     market = st.text_input("market", value="Plastics in Automotive")
     if st.button("Get Global Metrics"):
         with st.spinner("Fetching data..."):
             result = get_global_overview(market)
         st.markdown(result)
+    '''
+    res = get_global_overview("Electric Vehicle")
+    print(res)
 
 
 if __name__ == "__main__":

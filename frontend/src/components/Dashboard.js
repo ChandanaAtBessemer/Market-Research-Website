@@ -226,7 +226,7 @@ const MarketExplorerTab = ({
   RefreshCw, sidebarOpen, setSidebarOpen, sidebarData, AnalysisSidebar, Building2,selectedCategories, 
   setSelectedCategories, analysisCategories, companiesData, setCompaniesData,technologyData, setTechnologyData,
   productCategoryData, setProductCategoryData, regionData, setRegionData,endUserData,setEndUserData, setDownloadModalOpen,
-  setCombinedDownloadData
+  setCombinedDownloadData, relatedMarketsData, setRelatedMarketsData
 }) => (
   <div className="space-y-8">
     {/* Analysis Sidebar */}
@@ -441,6 +441,15 @@ const MarketExplorerTab = ({
           title="👥 End-User Segments"
           analysisType="endUser"
           onClose={() => setEndUserData(null)}
+        />
+      )}
+
+      {relatedMarketsData && (
+        <FormattedContent
+          content={relatedMarketsData}
+          title="🔗 Related Markets"
+          analysisType="related"
+          onClose={() => setRelatedMarketsData(null)}
         />
       )}
       </div>
@@ -1159,6 +1168,7 @@ const Dashboard = () => {
   const [popularMarkets, setPopularMarkets] = useState([]);
   const [selectedVertical, setSelectedVertical] = useState('');
   const [selectedHorizontal, setSelectedHorizontal] = useState('');
+  const [relatedMarketsData, setRelatedMarketsData] = useState(null);
   
   // Persistent analysis history state
   const [analysisHistory, setAnalysisHistory] = useState([]);
@@ -1175,7 +1185,8 @@ const Dashboard = () => {
     technology: false,
     endUser: false,
     topCompanies: false,
-    region: false
+    region: false,
+    relatedMarkets: false
   });
   
   // New state for additional category data
@@ -1239,7 +1250,8 @@ const Dashboard = () => {
     { key: 'technology', label: 'By Technology', icon: Zap },
     { key: 'endUser', label: 'By End-User', icon: Users },
     { key: 'topCompanies', label: 'Top Companies', icon: Building2 },
-    { key: 'region', label: 'By Region', icon: MapPin }
+    { key: 'region', label: 'By Region', icon: MapPin },
+    { key: 'relatedMarkets', label: 'Related Markets', icon: ExternalLink }
   ];
 
   // Toast notification system
@@ -1708,6 +1720,11 @@ const linkifyBareUrls = (htmlString) => {
               apiCall('/market/end-user-analysis', 'POST', { market }).then(r => ({key, data: r.data}))
             );
             break;
+          case 'relatedMarkets':
+            promises.push(
+              apiCall('/market/related-markets', 'POST', { market }).then(r => ({key, data: r.data}))
+            );
+            break;
         }
       });
       
@@ -1724,6 +1741,7 @@ const linkifyBareUrls = (htmlString) => {
           case 'topCompanies': setCompaniesData(data); break;
           case 'region': setRegionData(data); break;
           case 'endUser': setEndUserData(data); break;
+          case 'relatedMarkets': setRelatedMarketsData(data); break;
         }
       });
       
@@ -2509,6 +2527,8 @@ const linkifyBareUrls = (htmlString) => {
             setRegionData={setRegionData}
             endUserData={endUserData}
             setEndUserData={setEndUserData}
+            relatedMarketsData={relatedMarketsData}
+            setRelatedMarketsData={setRelatedMarketsData}
             marketAnalyzed={marketAnalyzed}
             selectedCategories={selectedCategories}
             setSelectedCategories={setSelectedCategories}

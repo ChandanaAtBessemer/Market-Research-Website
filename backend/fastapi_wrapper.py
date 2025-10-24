@@ -79,6 +79,7 @@ try:
     from backend.product_categories_agent import get_product_categories
     from backend.regional_segments_agent import get_regional_analysis
     from backend.end_user_segments_agent import get_end_user_analysis 
+    from backend.related_markets_agent import get_related_markets
     print("✅ Modules imported")
 except ImportError as e:
     print(f"❌ Import error: {e}")
@@ -177,6 +178,20 @@ async def vertical_segments(request: MarketRequest, db: Session = Depends(get_db
 
     result = get_vertical_submarkets(request.market)
     db.add(MarketAnalysis(market=request.market, analysis_type="vertical", data=result))
+    db.commit()
+    return {"success": True, "data": result, "cached": False}
+
+@app.post("/api/market/related-markets")
+async def related_markets(request: MarketRequest, db: Session = Depends(get_db)):
+    cached = db.query(MarketAnalysis)\
+               .filter_by(market=request.market, analysis_type="related")\
+               .order_by(MarketAnalysis.created_at.desc())\
+               .first()
+    if cached:
+        return {"success": True, "data": cached.data, "cached": True}
+
+    result = get_related_markets(request.market)
+    db.add(MarketAnalysis(market=request.market, analysis_type="related", data=result))
     db.commit()
     return {"success": True, "data": result, "cached": False}
 
